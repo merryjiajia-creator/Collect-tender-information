@@ -1,0 +1,208 @@
+"""看板生成模块：把记录渲染为自包含的 HTML 看板（数据内嵌，可直接托管到 GitHub Pages）。
+
+看板特性：
+- 按「类别」和「跟进状态」筛选，实时显示筛选后条数；
+- 每张卡片完整展示 15 个字段：标题、类别、招标单位/采购人、招标编号、招标方式、
+  采购内容（信息摘要）、预算金额、发布时间、投标截止时间、项目地点、联系人及联系方式、
+  跟进团队、跟进人、跟进状态、资料来源；
+- 跟进团队/跟进人/跟进状态 直接取自在线表格对应列，保持同步。
+"""
+import json
+from datetime import datetime, timezone, timedelta
+
+from .keywords import STATUS_OPTIONS
+
+CATEGORIES = ["物码", "即时零售", "到店"]
+
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>招标信息跟进看板</title>
+<style>
+  :root {
+    --bg:#f5f7fa; --card:#ffffff; --ink:#1f2937; --sub:#6b7280; --line:#e8ebef;
+    --primary:#1f4e79;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(135deg,#1f4e79,#2c6fa5); color:#fff; padding:18px 24px; }
+  header h1 { margin:0; font-size:20px; }
+  header .meta { margin-top:6px; font-size:13px; opacity:.92; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .stat { background:rgba(255,255,255,.15); border-radius:8px; padding:6px 12px; font-size:13px; }
+  .stat b { font-size:16px; }
+  .toolbar { padding:12px 24px; background:#fff; border-bottom:1px solid var(--line);
+             position:sticky; top:0; z-index:5; }
+  .filter-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  .filter-row:last-child { margin-bottom:0; }
+  .filter-row > label { font-size:12px; color:var(--sub); flex:0 0 42px; }
+  .chip { border:1px solid var(--line); background:#fff; border-radius:16px; padding:4px 14px;
+          font-size:13px; cursor:pointer; user-select:none; transition:.15s; }
+  .chip:hover { border-color:#b9c4d0; }
+  .chip.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .chip.cat-物码.active{background:#e67e22;border-color:#e67e22;}
+  .chip.cat-即时零售.active{background:#2980b9;border-color:#2980b9;}
+  .chip.cat-到店.active{background:#27ae60;border-color:#27ae60;}
+  input#q { border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; width:240px; }
+  .countbar { padding:12px 24px 0; font-size:14px; color:var(--sub); }
+  .countbar b { color:var(--primary); font-size:18px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+          gap:14px; padding:14px 24px 30px; }
+  .card { background:var(--card); border-radius:12px; padding:14px 16px;
+          box-shadow:0 1px 4px rgba(0,0,0,.07); border-top:4px solid #ccc; }
+  .card .top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px; }
+  .card h3 { margin:0; font-size:15px; line-height:1.45; flex:1; }
+  .tag { font-size:11px; padding:3px 10px; border-radius:10px; color:#fff; white-space:nowrap; flex:0 0 auto; }
+  .tag.cat-物码{background:#e67e22;} .tag.cat-即时零售{background:#2980b9;}
+  .tag.cat-到店{background:#27ae60;}
+  .row { font-size:12.5px; margin:4px 0; display:flex; gap:8px; line-height:1.5; }
+  .row .k { color:#9aa1ab; flex:0 0 76px; }
+  .row .v { color:#374151; flex:1; word-break:break-word; }
+  .follow { margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);
+            display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .pill { font-size:11px; padding:3px 9px; border-radius:6px; background:#f1f3f5; color:#374151; }
+  .pill b { color:#1f2937; }
+  .pill.team { background:#eaf2fb; color:#1f4e79; }
+  .st { font-size:11px; padding:3px 10px; border-radius:10px; font-weight:700; color:#fff; }
+  .st-待跟进{background:#95a5a6;} .st-跟进中{background:#2980b9;} .st-述标中{background:#e67e22;}
+  .st-已中标{background:#27ae60;} .st-未中标{background:#c0392b;}
+  .src { margin-top:8px; }
+  .src a { font-size:12px; color:#2980b9; text-decoration:none; }
+  .empty { color:#9aa1ab; font-size:14px; text-align:center; padding:60px; grid-column:1/-1; }
+  footer { text-align:center; color:var(--sub); font-size:12px; padding:16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 招标信息跟进看板</h1>
+  <div class="meta">数据更新：__UPDATED__ ｜ 数据源：腾讯在线表格（跟进团队/跟进人/跟进状态实时同步）</div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="toolbar">
+  <div class="filter-row" id="catFilter"><label>类别</label></div>
+  <div class="filter-row" id="stFilter"><label>状态</label></div>
+  <div class="filter-row"><label>搜索</label><input id="q" placeholder="搜索标题 / 单位 / 采购内容 / 地点 / 跟进人…"></div>
+</div>
+
+<div class="countbar">筛选结果：<b id="cnt">0</b> 条 ／ 共 <span id="total"></span> 条</div>
+<div class="grid" id="grid"></div>
+<footer>由每周二自动化任务生成 · 三类主题：物码 / 即时零售 / 到店</footer>
+
+<script>
+const DATA = __DATA__;
+const CATEGORIES = __CATEGORIES__;
+const STATUSES = __STATUSES__;
+let catSel = new Set(CATEGORIES);
+let stSel = new Set(STATUSES);
+let kw = "";
+
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function val(x){ return (x==null || String(x).trim()==="") ? "—" : x; }
+
+function renderStats(){
+  const el = document.getElementById('stats');
+  const byCat = {}; CATEGORIES.forEach(c=>byCat[c]=0);
+  DATA.forEach(d=>{ if(byCat[d['类别']]!=null) byCat[d['类别']]++; });
+  let html = `<div class="stat">总计 <b>${DATA.length}</b></div>`;
+  CATEGORIES.forEach(c=> html += `<div class="stat">${c} <b>${byCat[c]||0}</b></div>`);
+  el.innerHTML = html;
+  document.getElementById('total').textContent = DATA.length;
+}
+
+function buildFilters(){
+  const cf = document.getElementById('catFilter');
+  CATEGORIES.forEach(c=>{
+    const chip=document.createElement('span'); chip.className='chip cat-'+c+' active'; chip.textContent=c;
+    chip.onclick=()=>{ chip.classList.toggle('active'); chip.classList.contains('active')?catSel.add(c):catSel.delete(c); render(); };
+    cf.appendChild(chip);
+  });
+  const sf = document.getElementById('stFilter');
+  STATUSES.forEach(s=>{
+    const chip=document.createElement('span'); chip.className='chip active'; chip.textContent=s;
+    chip.onclick=()=>{ chip.classList.toggle('active'); chip.classList.contains('active')?stSel.add(s):stSel.delete(s); render(); };
+    sf.appendChild(chip);
+  });
+  document.getElementById('q').oninput=(e)=>{ kw=e.target.value.trim().toLowerCase(); render(); };
+}
+
+function match(d){
+  if(!catSel.has(d['类别'])) return false;
+  if(!stSel.has(d['跟进状态']||'待跟进')) return false;
+  if(kw){
+    const hay = [d['招标标题'],d['招标单位'],d['采购内容'],d['项目地点'],d['招标编号'],d['跟进人'],d['跟进团队']].join(' ').toLowerCase();
+    if(!hay.includes(kw)) return false;
+  }
+  return true;
+}
+
+function card(d){
+  const cat = d['类别']||'';
+  const st = d['跟进状态']||'待跟进';
+  const accent = {'物码':'#e67e22','即时零售':'#2980b9','到店':'#27ae60'}[cat]||'#ccc';
+  const rows = [
+    ['信息来源平台', d['信息来源平台']],
+    ['招标单位', d['招标单位']],
+    ['招标编号', d['招标编号']],
+    ['招标方式', d['招标方式']],
+    ['采购内容', d['采购内容']],
+    ['预算金额', d['预算金额']],
+    ['发布时间', d['发布时间']],
+    ['截止时间', d['截止时间']],
+    ['项目地点', d['项目地点']],
+    ['联系方式', d['联系方式']],
+  ].map(r=>`<div class="row"><span class="k">${r[0]}</span><span class="v">${esc(val(r[1]))}</span></div>`).join('');
+  const src = d['资料来源']
+      ? `<div class="src">🔗 <a href="${esc(d['资料来源'])}" target="_blank">查看原文</a></div>`
+      : `<div class="src">🔗 <span style="color:#9aa1ab;font-size:12px">资料来源 —</span></div>`;
+  return `<div class="card" style="border-top-color:${accent}">
+    <div class="top"><h3>${esc(d['招标标题'])}</h3><span class="tag cat-${cat}">${cat}</span></div>
+    ${rows}
+    <div class="follow">
+      <span class="pill team">跟进团队 <b>${esc(val(d['跟进团队']))}</b></span>
+      <span class="pill">跟进人 <b>${esc(val(d['跟进人']))}</b></span>
+      <span class="st st-${st}">${st}</span>
+    </div>
+    ${src}
+  </div>`;
+}
+
+function render(){
+  const grid = document.getElementById('grid');
+  const rows = DATA.filter(match);
+  document.getElementById('cnt').textContent = rows.length;
+  grid.innerHTML = rows.length ? rows.map(card).join('') : '<div class="empty">无匹配数据，请调整筛选条件</div>';
+}
+
+renderStats(); buildFilters(); render();
+</script>
+</body>
+</html>"""
+
+
+def generate(records, updated=None, categories=None):
+    """生成看板 HTML。categories 可指定要展示的类别列表，默认展示全部。"""
+    if updated is None:
+        bj = datetime.now(timezone(timedelta(hours=8)))
+        updated = bj.strftime("%Y-%m-%d %H:%M")
+    display_cats = categories if categories else list(CATEGORIES)
+    # 只展示指定类别的记录
+    filtered = [r for r in records if r.get("类别") in display_cats]
+    html = HTML_TEMPLATE
+    html = html.replace("__UPDATED__", updated)
+    html = html.replace("__DATA__", json.dumps(filtered, ensure_ascii=False))
+    html = html.replace("__CATEGORIES__", json.dumps(display_cats, ensure_ascii=False))
+    html = html.replace("__STATUSES__", json.dumps(STATUS_OPTIONS, ensure_ascii=False))
+    return html
+
+
+def write_dashboard(records, path, updated=None, categories=None):
+    import os
+    html = generate(records, updated, categories)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    return path

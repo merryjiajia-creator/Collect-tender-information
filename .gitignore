@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 环境变量（切勿提交密钥）
+.env
+
+# 运行产物（如不希望提交可解注下面两行）
+# data/store.json
+# dashboard/index.html
+
+# 令牌持久化（含敏感信息，默认不提交）
+data/tencent_refresh_token.txt
+
+# 备份文件（临时，不提交）
+*.bak
+data/*.xlsx
+
+# 系统
+.DS_Store
+Thumbs.db

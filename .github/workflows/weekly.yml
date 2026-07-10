@@ -1,0 +1,107 @@
+name: 招标信息监控周报
+
+on:
+  schedule:
+    # UTC 01:30 = 北京时间 09:30，每周二执行一次
+    - cron: "30 1 * * 2"
+  workflow_dispatch: {}      # 支持手动触发
+
+permissions:
+  contents: write            # 允许提交 store.json / 看板回仓库
+  pages: write               # 允许部署 GitHub Pages
+  id-token: write
+
+concurrency:
+  group: tender-monitor
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 执行招标监控任务
+        env:
+          # ---- DeepSeek 大模型 ----
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+
+          # ---- 搜索引擎 ----
+          SEARCH_PROVIDER: ${{ secrets.SEARCH_PROVIDER }}
+          BOCHA_API_KEY: ${{ secrets.BOCHA_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+
+          # ---- 收集规则 ----
+          PUBLISH_DATE_CUTOFF: ${{ secrets.PUBLISH_DATE_CUTOFF }}
+
+          # ---- 腾讯文档 OAuth ----
+          TENCENT_CLIENT_ID: ${{ secrets.TENCENT_CLIENT_ID }}
+          TENCENT_CLIENT_SECRET: ${{ secrets.TENCENT_CLIENT_SECRET }}
+          TENCENT_REFRESH_TOKEN: ${{ secrets.TENCENT_REFRESH_TOKEN }}
+
+          # ---- 总表（物码+即时零售+到店）----
+          TENCENT_FILE_ID: ${{ secrets.TENCENT_FILE_ID }}
+          TENCENT_SHEET_ID: ${{ secrets.TENCENT_SHEET_ID }}
+          SHEET_URL: ${{ secrets.SHEET_URL }}
+
+          # ---- 物码专属表格 ----
+          TENCENT_FILE_WM: ${{ secrets.TENCENT_FILE_WM }}
+          TENCENT_SHEET_WM: ${{ secrets.TENCENT_SHEET_WM }}
+          SHEET_URL_WM: ${{ secrets.SHEET_URL_WM }}
+
+          # ---- 即时零售专属表格 ----
+          TENCENT_FILE_JS: ${{ secrets.TENCENT_FILE_JS }}
+          TENCENT_SHEET_JS: ${{ secrets.TENCENT_SHEET_JS }}
+          SHEET_URL_JS: ${{ secrets.SHEET_URL_JS }}
+
+          # ---- 到店专属表格 ----
+          TENCENT_FILE_DD: ${{ secrets.TENCENT_FILE_DD }}
+          TENCENT_SHEET_DD: ${{ secrets.TENCENT_SHEET_DD }}
+          SHEET_URL_DD: ${{ secrets.SHEET_URL_DD }}
+
+          # ---- 企业微信群机器人 ----
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+
+          # ---- 看板 ----
+          DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+
+        run: python main.py
+
+      - name: 提交数据与看板回仓库
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/store.json data/last_push_date.txt dashboard/
+          if git diff --cached --quiet; then
+            echo "无变更，跳过提交"
+          else
+            git commit -m "chore: 更新招标数据与看板 $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: 上传看板到 Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard
+
+  deploy-pages:
+    needs: run
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
