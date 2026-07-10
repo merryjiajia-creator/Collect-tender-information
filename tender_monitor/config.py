@@ -22,7 +22,8 @@ class Config:
     DEEPSEEK_BASE_URL = _get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     DEEPSEEK_MODEL = _get("DEEPSEEK_MODEL", "deepseek-chat")
 
-    # ---------- 搜索引擎（bocha 博查 / serper Google）----------
+    # ---------- 搜索引擎（bocha 博查 / serper Google API���----------
+    # 博查免费额度 1000次/月，对中文招标网站覆盖最佳
     SEARCH_PROVIDER = _get("SEARCH_PROVIDER", "bocha").lower()
     BOCHA_API_KEY = _get("BOCHA_API_KEY", "")
     SERPER_API_KEY = _get("SERPER_API_KEY", "")

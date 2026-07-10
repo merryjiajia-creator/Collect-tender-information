@@ -148,9 +148,8 @@ python main.py
 | Secret | 说明 | 获取方式 |
 |--------|------|---------|
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | [platform.deepseek.com](https://platform.deepseek.com) |
-| `SEARCH_PROVIDER` | `bocha` 或 `serper` | — |
-| `BOCHA_API_KEY` | 博查搜索 Key | [open.bochaai.com](https://open.bochaai.com)（二选一） |
-| `SERPER_API_KEY` | Serper Key | [serper.dev](https://serper.dev)（二选一） |
+| `SEARCH_PROVIDER` | 默认 `bocha`（免费 1000次/月） | 可选 `serper`（Google） |
+| `BOCHA_API_KEY` | 博查搜索 Key（免费） | [open.bochaai.com](https://open.bochaai.com) |
 | `TENCENT_CLIENT_ID` | 腾讯文档应用 Client ID | [docs.qq.com/open](https://docs.qq.com/open) |
 | `TENCENT_CLIENT_SECRET` | 腾讯文档应用 Client Secret | 同上 |
 | `TENCENT_REFRESH_TOKEN` | OAuth refresh_token | 见下方「获取腾讯文档 Token」 |
