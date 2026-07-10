@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>招标信息跟进看板</title>
+<style>
+  :root {
+    --bg:#f5f7fa; --card:#ffffff; --ink:#1f2937; --sub:#6b7280; --line:#e8ebef;
+    --primary:#1f4e79;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(135deg,#1f4e79,#2c6fa5); color:#fff; padding:18px 24px; }
+  header h1 { margin:0; font-size:20px; }
+  header .meta { margin-top:6px; font-size:13px; opacity:.92; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .stat { background:rgba(255,255,255,.15); border-radius:8px; padding:6px 12px; font-size:13px; }
+  .stat b { font-size:16px; }
+  .toolbar { padding:12px 24px; background:#fff; border-bottom:1px solid var(--line);
+             position:sticky; top:0; z-index:5; }
+  .filter-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  .filter-row:last-child { margin-bottom:0; }
+  .filter-row > label { font-size:12px; color:var(--sub); flex:0 0 42px; }
+  .chip { border:1px solid var(--line); background:#fff; border-radius:16px; padding:4px 14px;
+          font-size:13px; cursor:pointer; user-select:none; transition:.15s; }
+  .chip:hover { border-color:#b9c4d0; }
+  .chip.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .chip.cat-物码.active{background:#e67e22;border-color:#e67e22;}
+  .chip.cat-即时零售.active{background:#2980b9;border-color:#2980b9;}
+  .chip.cat-到店.active{background:#27ae60;border-color:#27ae60;}
+  input#q { border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; width:240px; }
+  .countbar { padding:12px 24px 0; font-size:14px; color:var(--sub); }
+  .countbar b { color:var(--primary); font-size:18px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+          gap:14px; padding:14px 24px 30px; }
+  .card { background:var(--card); border-radius:12px; padding:14px 16px;
+          box-shadow:0 1px 4px rgba(0,0,0,.07); border-top:4px solid #ccc; }
+  .card .top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px; }
+  .card h3 { margin:0; font-size:15px; line-height:1.45; flex:1; }
+  .tag { font-size:11px; padding:3px 10px; border-radius:10px; color:#fff; white-space:nowrap; flex:0 0 auto; }
+  .tag.cat-物码{background:#e67e22;} .tag.cat-即时零售{background:#2980b9;}
+  .tag.cat-到店{background:#27ae60;}
+  .row { font-size:12.5px; margin:4px 0; display:flex; gap:8px; line-height:1.5; }
+  .row .k { color:#9aa1ab; flex:0 0 76px; }
+  .row .v { color:#374151; flex:1; word-break:break-word; }
+  .follow { margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);
+            display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .pill { font-size:11px; padding:3px 9px; border-radius:6px; background:#f1f3f5; color:#374151; }
+  .pill b { color:#1f2937; }
+  .pill.team { background:#eaf2fb; color:#1f4e79; }
+  .st { font-size:11px; padding:3px 10px; border-radius:10px; font-weight:700; color:#fff; }
+  .st-待跟进{background:#95a5a6;} .st-跟进中{background:#2980b9;} .st-述标中{background:#e67e22;}
+  .st-已中标{background:#27ae60;} .st-未中标{background:#c0392b;}
+  .src { margin-top:8px; }
+  .src a { font-size:12px; color:#2980b9; text-decoration:none; }
+  .empty { color:#9aa1ab; font-size:14px; text-align:center; padding:60px; grid-column:1/-1; }
+  footer { text-align:center; color:var(--sub); font-size:12px; padding:16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 招标信息跟进看板</h1>
+  <div class="meta">数据更新：2026-07-10 19:03 ｜ 数据源：腾讯在线表格（跟进团队/跟进人/跟进状态实时同步）</div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="toolbar">
+  <div class="filter-row" id="catFilter"><label>类别</label></div>
+  <div class="filter-row" id="stFilter"><label>状态</label></div>
+  <div class="filter-row"><label>搜索</label><input id="q" placeholder="搜索标题 / 单位 / 采购内容 / 地点 / 跟进人…"></div>
+</div>
+
+<div class="countbar">筛选结果：<b id="cnt">0</b> 条 ／ 共 <span id="total"></span> 条</div>
+<div class="grid" id="grid"></div>
+<footer>由每周二自动化任务生成 · 三类主题：物码 / 即时零售 / 到店</footer>
+
+<script>
+const DATA = [{"类别": "物码", "招标编号": "XJJLBZXYSBCG2026-38号", "招标标题": "一物一码追溯系统采购项目", "招标单位": "新疆天番食品科技有限公司", "招标方式": "竞争性磋商", "采购内容": "一物一码追溯系统 3 套，含系统设计、制造、运输、安装调试、用户培训", "预算金额": "未披露", "发布时间": "2026-06-16", "截止时间": "2026-06-26 16:30", "项目地点": "全国/详见公告", "联系方式": "联系人:徐先生 手机:130-1188-5531 邮箱:bjzyzb66@126.com", "资料来源": "https://www.zyzbcg.cn/class1/834829.html", "跟进团队": "SCD", "跟进人": "jiajia", "跟进状态": "跟进中", "备注": "", "信息来源平台": "采购与招标网"}, {"类别": "物码", "招标编号": "XHXYGG202605280059", "招标标题": "2026年中国品牌小程序一物一码运营及自媒体运营服务项目-标段二", "招标单位": "华润雪花啤酒（中国）有限公司", "招标方式": "未知", "采购内容": "小程序一物一码运营、自媒体运营、活动创意执行、AIGC/XR/AR技术应用、流量闭环", "预算金额": "未披露", "发布时间": "2026-05-28", "截止时间": "2026-06-23 10:00", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "http://szecp.crc.com.cn/zbxx/006002/006002001/20260528/XHXYGG202605280059.html", "跟进团队": "SCD", "跟进人": "jiajia1", "跟进状态": "已中标", "备注": "", "信息来源平台": "华润守正电子招标平台"}, {"类别": "物码", "招标编号": "ZXJY-JZXTP-202605-05866", "招标标题": "2026年紫轩酒业公司雄关酒业产品防窜货营销系统技术服务采购", "招标单位": "甘肃雄关酒业有限责任公司", "招标方式": "竞争性谈判", "采购内容": "雄关酒业产品防窜货营销系统技术服务", "预算金额": "未披露", "发布时间": "2026-06-12", "截止时间": "2026-06-22 15:15", "项目地点": "全国/详见公告", "联系方式": "采购人:甘肃雄关酒业 陈鹏飞 18793639999；交易中心:安娟 0937-6719168", "资料来源": "https://www.gsei.com.cn/html/1662/2026-06-12/content-677733.html", "跟进团队": "SCD", "跟进人": "jiaji2", "跟进状态": "待跟进", "备注": "", "信息来源平台": "甘肃经济信息网"}, {"类别": "物码", "招标编号": "", "招标标题": "2026财年瓶盖招标", "招标单位": "江苏洽康食品有限公司", "招标方式": "未知", "采购内容": "2026财年瓶盖（马口铁+PVC胶垫）采购；瓶盖是扫码营销/一物一码常见赋码载体", "预算金额": "平台会员可见", "发布时间": "2026-06-17", "截止时间": "2026-07-01前联系", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "https://zb.zhaobiao.cn/bidding_v_426ff7123daa26d2b1a35430c0b749fc.html", "跟进团队": "SCD", "跟进人": "jiaji3", "跟进状态": "跟进中", "备注": "", "信息来源平台": "中国招标投标公共服务平台（招标网）"}, {"类别": "物码", "招标编号": "", "招标标题": "一物一码三级等保与密评服务项目", "招标单位": "云南白药集团数智科技有限公司", "招标方式": "未知", "采购内容": "一物一码系统三级等保测评与密码应用安全性评估（密评）服务", "预算金额": "未披露", "发布时间": "2026-06-16", "截止时间": "2026-06-15 09:00（已磋商）", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "https://www.yunnanbaiyao.com.cn/view/ynbyPc/1/16/view/9353.html", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "云南白药集团官网"}, {"类别": "物码", "招标编号": "", "招标标题": "2026年国际品牌小程序一物一码运营服务-标段一", "招标单位": "华润雪花啤酒（中国）有限公司", "招标方式": "未知", "采购内容": "国际品牌小程序一物一码运营服务；活动策划、UX/UI设计、礼品发放管理", "预算金额": "未披露", "发布时间": "2026-05-27", "截止时间": "待确认（公开渠道未显示）", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "https://www.ixbang.com/bid/detail/965BA1FAC96B03E2C2E8DA122B0151D4.html", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "行邦招标网"}, {"类别": "物码", "招标编号": "ZFCG-安康市-2025-12221", "招标标题": "药械化唯一标识（UDI）管理系统采购项目", "招标单位": "安康市中心医院", "招标方式": "公开招标", "采购内容": "药械化唯一标识（UDI）管理系统采购", "预算金额": "89.0万元", "发布时间": "2026-01-09", "截止时间": "2026-02-02 09:00（已结束）", "项目地点": "全国/详见公告", "联系方式": "采购人:安康市中心医院 18992512997；代理:兴意项目管理 唐女士 15709157772", "资料来源": "http://www.ccgp.gov.cn/cggg/dfgg/gkzb/202601/t20260109_26059049.htm", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "中国政府采购网"}, {"类别": "物码", "招标编号": "", "招标标题": "紫外激光打码机竞价采购", "招标单位": "青岛食品股份有限公司", "招标方式": "竞价采购", "采购内容": "15W紫外激光打码机 1 台，用于产品标识/一物一码赋码", "预算金额": "约5.2万元", "发布时间": "2026-06-04", "截止时间": "2026-06-05 14:30（已开标）", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "青岛阳光采购平台/百度寻标宝", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "青岛阳光采购平台"}, {"类别": "物码", "招标编号": "", "招标标题": "2026年一物一码互动腾讯优码采购项目（采购结果公告）", "招标单位": "广州王老吉大健康产业有限公司", "招标方式": "直接采购", "采购内容": "活动码包及码平台、一物一码营销活动管理系统、腾讯天御风控平台；直接采购成交供应商为腾讯云计算（北京）有限责任公司", "预算金额": "50.0万元", "发布时间": "2026-06-25", "截止时间": "2026-06-25（已成交）", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "http://ygcg.gzggzy.cn/m92/fw2/20260625/413676.html", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "广州国企阳光采购信息发布平台"}, {"类别": "物码", "招标编号": "", "招标标题": "第三轮-大亚湾基地工具库工具“一物一码”标签定制采购项目", "招标单位": "大亚湾核电运营管理有限责任公司", "招标方式": "未知", "采购内容": "大亚湾基地工具库工具“一物一码”标签定制采购；要求近3年具有合同金额50万元以上类似“一物一码”项目供货业绩", "预算金额": "未披露", "发布时间": "2026-06-25", "截止时间": "2026-06-30 10:31", "项目地点": "全国/详见公告", "联系方式": "详见原文公告", "资料来源": "http://www.zbwmy.com/150/151/2026/06/25/219566133.html", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "招标网（招标无忧）"}, {"类别": "物码", "招标编号": "XJJLBZXYYSBCG2026-38号", "招标标题": "一物一码追溯系统采购项目竞争性磋商公告（二次）", "招标单位": "新疆天番食品科技有限公司", "招标方式": "竞争性磋商", "采购内容": "采购一物一码追溯系统 3 套，含系统设计、制造、运输、安装和调试、用户培训", "预算金额": "120万元", "发布时间": "2026-06-29", "截止时间": "2026-07-09 11:00", "项目地点": "全国/详见公告", "联系方式": "联系人:贾工 手机:18618387645 邮箱:bjgxjjj@163.com", "资料来源": "https://www.gxzbcg.cn/class2/802370.html", "跟进团队": "SCD", "跟进人": "", "跟进状态": "待跟进", "备注": "", "信息来源平台": "广西招标采购网"}, {"类别": "物码", "招标编号": "MNCGJH-20260112-0019", "招标标题": "蒙牛低温销管2026年物码活动采购招标项目", "招标单位": "蒙牛高科乳制品（北京）有限责任公司", "招标方式": "竞争性谈判", "采购内容": "利用一物一码技术构建覆盖产品全生命周期的数字化追踪与互动体系，包括物码体系设计与实施、互动营销策划与执行、数据平台与用户洞察、运营支持与迭代优化，服务北京区域", "预算金额": "未披露", "发布时间": "2026-01-14", "截止时间": "2026-01-30 09:00", "项目地点": "北京", "联系方式": "曲露红 17810798802；招标代理: 张岩 17647447246", "资料来源": "https://www.mengniu.com.cn/contact/detail/26151.html", "跟进团队": "", "跟进人": "", "跟进状态": "", "备注": "", "信息来源平台": "蒙牛官网"}, {"类别": "物码", "招标编号": "11000026210200172851-XM001", "招标标题": "北京市药品监督管理局药品追溯监管系统升级改造项目", "招标单位": "北京市药品监督管理局", "招标方式": "公开招标", "采购内容": "建立医疗机构、罕见病临床急需药品、医药进口企业白名单管理制度，实现来源可查、去向可追、风险可控、责任可究；优化临床急需药械进口审批和流通流程", "预算金额": "176.7万元", "发布时间": "2026-05-14", "截止时间": "2026-06-04 10:00", "项目地点": "北京", "联系方式": "桑凌岳 010-55526963", "资料来源": "https://www.ccgp.gov.cn/cggg/dfgg/gkzb/202605/t20260514_26565800.htm", "跟进团队": "", "跟进人": "", "跟进状态": "", "备注": "", "信息来源平台": "中国政府采购网"}, {"类别": "物码", "招标编号": "D6405000141100317", "招标标题": "沙坡头区2026年硒砂瓜品质品牌保护防伪溯源专用标识采购项目", "招标单位": "沙坡头区农业技术推广服务中心", "招标方式": "公开招标", "采购内容": "硒砂瓜品质品牌保护防伪溯源专用标识采购，单价上限4元/100枚", "预算金额": "260万元", "发布时间": "2026-04-09", "截止时间": "2026-04-30 09:00", "项目地点": "宁夏中卫", "联系方式": "樊世蕊 0955-7065891", "资料来源": "http://www.ccgp.gov.cn/cggg/dfgg/gkzb/202604/t20260409_26378972.htm", "跟进团队": "", "跟进人": "", "跟进状态": "", "备注": "", "信息来源平台": "中国政府采购网"}, {"类别": "物码", "招标编号": "闽联审榕招[2026]007号", "招标标题": "福州烟草卷烟实物一码物联专卖智慧监督应用系统采购项目", "招标单位": "福建省烟草公司福州分公司", "招标方式": "公开招标", "采购内容": "卷烟实物一码物联专卖智慧监督应用系统", "预算金额": "未披露", "发布时间": "2026-02-13", "截止时间": "未披露", "项目地点": "福州", "联系方式": "未披露", "资料来源": "https://fj.tobacco.gov.cn/fz/showMessage.aspx?GUID=49-54-53-50-57-48", "跟进团队": "", "跟进人": "", "跟进状态": "", "备注": "", "信息来源平台": "福建烟草网"}, {"类别": "物码", "招标编号": "未披露", "招标标题": "四川中烟工业有限责任公司2026-2028二维码营销运营推广项目", "招标单位": "四川中烟工业有限责任公司", "招标方式": "公开招标", "采购内容": "2026-2028年二维码营销运营推广服务", "预算金额": "未披露", "发布时间": "2026-03-09", "截止时间": "2026-03-16", "项目地点": "成都", "联系方式": "未披露", "资料来源": "https://scbid.com/index.php/info/detail/1927513666_4158108.html", "跟进团队": "", "跟进人": "", "跟进状态": "", "备注": "", "信息来源平台": "四川招投标网"}];
+const CATEGORIES = ["物码"];
+const STATUSES = ["待跟进", "跟进中", "述标中", "已中标", "未中标"];
+let catSel = new Set(CATEGORIES);
+let stSel = new Set(STATUSES);
+let kw = "";
+
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function val(x){ return (x==null || String(x).trim()==="") ? "—" : x; }
+
+function renderStats(){
+  const el = document.getElementById('stats');
+  const byCat = {}; CATEGORIES.forEach(c=>byCat[c]=0);
+  DATA.forEach(d=>{ if(byCat[d['类别']]!=null) byCat[d['类别']]++; });
+  let html = `<div class="stat">总计 <b>${DATA.length}</b></div>`;
+  CATEGORIES.forEach(c=> html += `<div class="stat">${c} <b>${byCat[c]||0}</b></div>`);
+  el.innerHTML = html;
+  document.getElementById('total').textContent = DATA.length;
+}
+
+function buildFilters(){
+  const cf = document.getElementById('catFilter');
+  CATEGORIES.forEach(c=>{
+    const chip=document.createElement('span'); chip.className='chip cat-'+c+' active'; chip.textContent=c;
+    chip.onclick=()=>{ chip.classList.toggle('active'); chip.classList.contains('active')?catSel.add(c):catSel.delete(c); render(); };
+    cf.appendChild(chip);
+  });
+  const sf = document.getElementById('stFilter');
+  STATUSES.forEach(s=>{
+    const chip=document.createElement('span'); chip.className='chip active'; chip.textContent=s;
+    chip.onclick=()=>{ chip.classList.toggle('active'); chip.classList.contains('active')?stSel.add(s):stSel.delete(s); render(); };
+    sf.appendChild(chip);
+  });
+  document.getElementById('q').oninput=(e)=>{ kw=e.target.value.trim().toLowerCase(); render(); };
+}
+
+function match(d){
+  if(!catSel.has(d['类别'])) return false;
+  if(!stSel.has(d['跟进状态']||'待跟进')) return false;
+  if(kw){
+    const hay = [d['招标标题'],d['招标单位'],d['采购内容'],d['项目地点'],d['招标编号'],d['跟进人'],d['跟进团队']].join(' ').toLowerCase();
+    if(!hay.includes(kw)) return false;
+  }
+  return true;
+}
+
+function card(d){
+  const cat = d['类别']||'';
+  const st = d['跟进状态']||'待跟进';
+  const accent = {'物码':'#e67e22','即时零售':'#2980b9','到店':'#27ae60'}[cat]||'#ccc';
+  const rows = [
+    ['信息来源平台', d['信息来源平台']],
+    ['招标单位', d['招标单位']],
+    ['招标编号', d['招标编号']],
+    ['招标方式', d['招标方式']],
+    ['采购内容', d['采购内容']],
+    ['预算金额', d['预算金额']],
+    ['发布时间', d['发布时间']],
+    ['截止时间', d['截止时间']],
+    ['项目地点', d['项目地点']],
+    ['联系方式', d['联系方式']],
+  ].map(r=>`<div class="row"><span class="k">${r[0]}</span><span class="v">${esc(val(r[1]))}</span></div>`).join('');
+  const src = d['资料来源']
+      ? `<div class="src">🔗 <a href="${esc(d['资料来源'])}" target="_blank">查看原文</a></div>`
+      : `<div class="src">🔗 <span style="color:#9aa1ab;font-size:12px">资料来源 —</span></div>`;
+  return `<div class="card" style="border-top-color:${accent}">
+    <div class="top"><h3>${esc(d['招标标题'])}</h3><span class="tag cat-${cat}">${cat}</span></div>
+    ${rows}
+    <div class="follow">
+      <span class="pill team">跟进团队 <b>${esc(val(d['跟进团队']))}</b></span>
+      <span class="pill">跟进人 <b>${esc(val(d['跟进人']))}</b></span>
+      <span class="st st-${st}">${st}</span>
+    </div>
+    ${src}
+  </div>`;
+}
+
+function render(){
+  const grid = document.getElementById('grid');
+  const rows = DATA.filter(match);
+  document.getElementById('cnt').textContent = rows.length;
+  grid.innerHTML = rows.length ? rows.map(card).join('') : '<div class="empty">无匹配数据，请调整筛选条件</div>';
+}
+
+renderStats(); buildFilters(); render();
+</script>
+</body>
+</html>
